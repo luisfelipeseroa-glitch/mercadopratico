@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<title>Controle PRO de Compras</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body {
+  font-family: Arial;
+  background: #f1f2f6;
+  padding: 20px;
+}
+
+h1 {
+  text-align: center;
+}
+
+.topo {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+select, button {
+  padding: 8px;
+  border-radius: 5px;
+  border: none;
+}
+
+button {
+  background: #0984e3;
+  color: white;
+  cursor: pointer;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: white;
+}
+
+th, td {
+  padding: 8px;
+  border: 1px solid #ddd;
+  text-align: center;
+}
+
+th {
+  background: #2d3436;
+  color: white;
+}
+
+input {
+  width: 95%;
+  border: none;
+  text-align: center;
+}
+
+.total {
+  font-size: 18px;
+  margin-top: 10px;
+  text-align: right;
+}
+
+canvas {
+  margin-top: 20px;
+  background: white;
+  padding: 10px;
+}
+</style>
+</head>
+
+<body>
+
+<h1>🛒 Controle PRO de Compras</h1>
+
+<div class="topo">
+  <div>
+    📅 Mês:
+    <input type="month" id="mes" onchange="trocarMes()">
+  </div>
+
+  <div>
+    <select id="filtro" onchange="render()">
+      <option value="">Todos</option>
+      <option>Proteína</option>
+      <option>Grãos</option>
+      <option>Laticínios</option>
+      <option>Bebidas</option>
+      <option>Limpeza</option>
+      <option>Higiene</option>
+      <option>Padaria</option>
+    </select>
+
+    <button onclick="addLinha()">+ Produto</button>
+    <button onclick="exportar()">⬇ Exportar</button>
+  </div>
+</div>
+
+<table>
+<thead>
+<tr>
+<th>Tipo</th>
+<th>Produto</th>
+<th>Marca</th>
+<th>Apresentação</th>
+<th>Qtd</th>
+<th>Valor</th>
+<th>Total</th>
+</tr>
+</thead>
+<tbody id="tbody"></tbody>
+</table>
+
+<div class="total">
+💰 Total Mensal: R$ <span id="total">0.00</span>
+</div>
+
+<canvas id="grafico"></canvas>
+
+<script>
+let mesAtual = localStorage.getItem("mes") || new Date().toISOString().slice(0,7);
+document.getElementById("mes").value = mesAtual;
+
+let banco = JSON.parse(localStorage.getItem("bancoCompras")) || {};
+
+if (!banco[mesAtual]) banco[mesAtual] = [];
+
+function salvar() {
+  localStorage.setItem("bancoCompras", JSON.stringify(banco));
+  localStorage.setItem("mes", mesAtual);
+}
+
+function trocarMes() {
+  mesAtual = document.getElementById("mes").value;
+  if (!banco[mesAtual]) banco[mesAtual] = [];
+  render();
+}
+
+function addLinha() {
+  banco[mesAtual].push({tipo:"", produto:"", marca:"", ap:"", qtd:1, valor:0});
+  render();
+}
+
+function update(i, campo, valor) {
+  if (campo === "qtd" || campo === "valor") {
+    banco[mesAtual][i][campo] = parseFloat(valor) || 0;
+  } else {
+    banco[mesAtual][i][campo] = valor;
+  }
+  render();
+}
+
+function render() {
+  let dados = banco[mesAtual];
+  let filtro = document.getElementById("filtro").value;
+  let tbody = document.getElementById("tbody");
+
+  tbody.innerHTML = "";
+  let total = 0;
+  let categorias = {};
+
+  dados.forEach((item, i) => {
+    if (filtro && item.tipo !== filtro) return;
+
+    let t = item.qtd * item.valor;
+    total += t;
+
+    if (!categorias[item.tipo]) categorias[item.tipo] = 0;
+    categorias[item.tipo] += t;
+
+    tbody.innerHTML += `
+    <tr>
+      <td><input value="${item.tipo}" onchange="update(${i},'tipo',this.value)"></td>
+      <td><input value="${item.produto}" onchange="update(${i},'produto',this.value)"></td>
+      <td><input value="${item.marca}" onchange="update(${i},'marca',this.value)"></td>
+      <td><input value="${item.ap}" onchange="update(${i},'ap',this.value)"></td>
+      <td><input type="number" value="${item.qtd}" onchange="update(${i},'qtd',this.value)"></td>
+      <td><input type="number" value="${item.valor}" step="0.01" onchange="update(${i},'valor',this.value)"></td>
+      <td>R$ ${t.toFixed(2)}</td>
+    </tr>
+    `;
+  });
+
+  document.getElementById("total").innerText = total.toFixed(2);
+  salvar();
+  gerarGrafico(categorias);
+}
+
+let chart;
+
+function gerarGrafico(categorias) {
+  let ctx = document.getElementById("grafico");
+
+  if (chart) chart.destroy();
+
+  chart = new Chart(ctx, {
+    type: "pie",
+    data: {
+      labels: Object.keys(categorias),
+      datasets: [{
+        data: Object.values(categorias)
+      }]
+    }
+  });
+}
+
+function exportar() {
+  let dados = banco[mesAtual];
+  let csv = "Tipo,Produto,Marca,Apresentacao,Qtd,Valor,Total\n";
+
+  dados.forEach(i => {
+    let total = i.qtd * i.valor;
+    csv += `${i.tipo},${i.produto},${i.marca},${i.ap},${i.qtd},${i.valor},${total}\n`;
+  });
+
+  let blob = new Blob([csv], { type: 'text/csv' });
+  let url = window.URL.createObjectURL(blob);
+
+  let a = document.createElement("a");
+  a.href = url;
+  a.download = `compras_${mesAtual}.csv`;
+  a.click();
+}
+
+render();
+</script>
+
+</body>
+</html>
